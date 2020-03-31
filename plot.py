@@ -21,9 +21,13 @@ print(df.head())
 print(df.tail())
 gps=df.iloc[:,1:4].values
 ekf=df.iloc[:,4:7].values
-ans=df.iloc[:,7:10].values
-ax.scatter(gps[:,0],gps[:,1], gps[:,2],s=0.5, color = "red")
-ax.plot(ekf[:,0],ekf[:,1], ekf[:,2], color = "green")
-ax.plot(ans[:,0],ans[:,1], ans[:,2], color = "blue")
+gt=df.iloc[:,7:10].values
+imu=df.iloc[:,10:13].values
+
+ax.scatter(gps[:,0],gps[:,1], gps[:,2],s=0.5, color = "red",label="noisy gps")
+ax.plot(ekf[:,0], ekf[:,1], ekf[:,2], color = "green", label="ekf")
+ax.plot( gt[:,0], gt[:,1],   gt[:,2], color = "blue",  label="ground truth")
+ax.plot(imu[:,0], imu[:,1], imu[:,2], color = "orange",label="only imu")
+ax.legend()
 
 plt.show()

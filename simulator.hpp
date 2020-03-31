@@ -20,13 +20,13 @@ public:
     for (int i = 0, N = static_cast<int>(1.0f / DT); i < N; i++) {
       const Eigen::Matrix3f R = true_q.toRotationMatrix();
 
-      Eigen::Vector3f sensor_acc, sensor_omega;
       Eigen::Vector3f global_acc, global_omega;
       global_acc << 13 * std::cos(static_cast<float>(i) * 0.0037), 17 * std::sin(static_cast<float>(i) * 0.0011), 7 * std::sin(static_cast<float>(i) * 0.0053);
       global_omega << 3 * std::sin(static_cast<float>(i) * 0.019), 7 * std::cos(static_cast<float>(i) * 0.073), 5 * std::sin(static_cast<float>(i) * 0.0053);
 
+      Eigen::Vector3f sensor_acc, sensor_omega;
       sensor_acc = R.transpose() * (global_acc + gravity);
-      sensor_omega = global_omega;  // よくよく考えるとこれは違うが本質的な問題ではない
+      sensor_omega = global_omega;
 
       true_pos += DT * true_vel + DT * DT * 0.5f * (R * sensor_acc - gravity);
       true_vel += DT * (R * sensor_acc - gravity);
@@ -39,19 +39,19 @@ public:
     }
   }
   // ローカル加速度
-  Eigen::Vector3f getAcc(int i) { return sensor_acc_data[i] + 4.0f * Eigen::Vector3f::Random(); }
+  Eigen::Vector3f sensorAcc(int i) { return sensor_acc_data[i] + 4.0f * Eigen::Vector3f::Random(); }
 
   // ローカル角速度
-  Eigen::Vector3f getOmega(int i) { return sensor_omega_data[i] + 4.0f * Eigen::Vector3f::Random(); }
+  Eigen::Vector3f sensorOmega(int i) { return sensor_omega_data[i] + 4.0f * Eigen::Vector3f::Random(); }
 
   // グローバル位置
-  Eigen::Vector3f getGps(float i) { return true_pos_data[i] + 0.3f * Eigen::Vector3f::Random(); }
+  Eigen::Vector3f sensorPos(float i) { return true_pos_data[i] + 0.3f * Eigen::Vector3f::Random(); }
 
   // グローバル回転
-  Eigen::Quaternionf getOrientation(float i) { return true_q_data[i] * randQ(); }
+  Eigen::Quaternionf sensorOrientation(float i) { return true_q_data[i] * randQ(); }
 
   // グローバル位置
-  Eigen::Vector3f getTruePos(float i) { return true_pos_data[i]; }
+  Eigen::Vector3f groundTruth(float i) { return true_pos_data[i]; }
 
 private:
   Eigen::Quaternionf exp(const Eigen::Vector3f& v)
@@ -73,7 +73,6 @@ private:
 
   std::vector<Eigen::Vector3f> sensor_acc_data;
   std::vector<Eigen::Vector3f> sensor_omega_data;
-
   std::vector<Eigen::Vector3f> true_pos_data;
   std::vector<Eigen::Quaternionf> true_q_data;
 };

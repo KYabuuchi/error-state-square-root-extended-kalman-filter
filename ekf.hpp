@@ -7,29 +7,36 @@ class EKF
 public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
+  Eigen::Vector3f getPos() const { return pos; }
+  Eigen::Vector3f getVel() const { return vel; }
+  Eigen::MatrixXf getCov() const { return Pu.transpose() * Pu; }
+
   EKF(float DT) : gravity(0, 0, 9.8f), DT(DT)
   {
-    // state variable
+    // states
     pos.setZero();
     vel.setZero();
     qua.setIdentity();
 
-    // variance covariance matrix
-    Eigen::MatrixXf P = Eigen::MatrixXf::Identity(9, 9);
+    // variance covariance matrix of error state
+    Eigen::MatrixXf P = 0.2 * Eigen::MatrixXf::Identity(9, 9);
     Pu = P.llt().matrixU();
 
-    // drive noise
-    Eigen::MatrixXf L, Q;
-    L.setZero(9, 6);
-    L.block(3, 0, 3, 3).setIdentity();
-    L.bottomRightCorner(3, 3).setIdentity();
+    // variance covariance matrix of IMU
+    Eigen::MatrixXf Q;
     Q.setZero(6, 6);
     Q.topLeftCorner(3, 3) = Eigen::Matrix3f::Identity() * 0.1;
     Q.bottomRightCorner(3, 3) = Eigen::Matrix3f::Identity() * 0.1;
+    Eigen::MatrixXf L;
+    L.setZero(9, 6);
+    L.block(3, 0, 3, 3).setIdentity();
+    L.bottomRightCorner(3, 3).setIdentity();
+
+    // driving noise
     Eigen::MatrixXf V = L * Q * L.transpose();
     Vu = V.ldlt().matrixU();
 
-    // observe noise
+    // observation noise
     Eigen::MatrixXf W;
     W.setZero(7, 7);
     W.topLeftCorner(3, 3) = 0.1 * Eigen::Matrix3f::Identity();      // position noise
@@ -39,57 +46,65 @@ public:
 
   void predict(const Eigen::Vector3f& acc, const Eigen::Vector3f& omega)
   {
-    Eigen::Matrix3f R = qua.toRotationMatrix();
+    Eigen::Matrix3f Rotate = qua.toRotationMatrix();
     Eigen::Quaternionf dq = exp(omega * DT);
 
-    // Predict state
-    Eigen::Vector3f nominal_acc = R * acc - gravity;
+    // update state vector
+    Eigen::Vector3f nominal_acc = Rotate * acc - gravity;
     pos += vel * DT + 0.5 * nominal_acc * DT * DT;
     vel += nominal_acc * DT;
     qua = qua * dq;
 
-    // Propagate uncertainty
-    Eigen::MatrixXf F = calcF(qua, acc, DT);
+    // propagation jacobian
+    Eigen::MatrixXf F = calcF(qua, acc, DT);  // (9x9)
+
+    // QR decompose
     Eigen::MatrixXf QR(18, 9);
     QR.topRows(9) = Pu * F.transpose();
-    QR.bottomRows(9) = Vu;
-    Eigen::MatrixXf Q = QR.householderQr().householderQ();
-    Pu = (Q.transpose() * QR).topRows(9);
+    QR.bottomRows(9) = Vu * DT;
+    Eigen::MatrixXf Q = QR.householderQr().householderQ();  // (18x18)
+    Eigen::MatrixXf R = Q.transpose() * QR;                 // (18x9)
+
+    // update variance covanriance matrix
+    Pu = R.topRows(9);  // (9x9)
   }
 
   void observe(const Eigen::Vector3f& obs_p, const Eigen::Quaternionf& obs_q)
   {
-    // error vector          (7)
+    // inovation residual vector (7x1)
     Eigen::VectorXf error = toVec(obs_p, obs_q) - toVec(pos, qua);
 
-    // observation jacobian  (7x9)
+    // observation jacobian (7x9)
     Eigen::MatrixXf H = calcH(qua);
 
-    // QR (7+9,7+9)
+    // QR decompose
     Eigen::MatrixXf QR(16, 16);
     QR.setZero();
     QR.topLeftCorner(7, 7) = Wu;
-    QR.bottomLeftCorner(9, 7) = Pu * H.transpose();  // 9x9 9x7
+    QR.bottomLeftCorner(9, 7) = Pu * H.transpose();  // (9x7)=(9x9)*(9x7)
     QR.bottomRightCorner(9, 9) = Pu;
+    Eigen::MatrixXf Q = QR.householderQr().householderQ();  // (16x16)
+    Eigen::MatrixXf R = Q.transpose() * QR;                 // (16x16)
 
-    Eigen::MatrixXf Q = QR.householderQr().householderQ();
-    Eigen::MatrixXf R = Q.transpose() * QR;
-    Eigen::MatrixXf Su = R.topLeftCorner(7, 7);
-    Eigen::MatrixXf Kt = R.topRightCorner(7, 9);
+    Eigen::MatrixXf Kt = R.topRightCorner(7, 9);             // (7x9) upper trianguler matrix of the modified Kalman gain
+    Eigen::MatrixXf Su = R.topLeftCorner(7, 7);              // (7x7) upper trianguler matrix of the inovation matrix
+    Eigen::MatrixXf Sui = Su.triangularView<Eigen::Upper>()  // (7x7) inverse of the upper trianguler of the inovation matrix
+                              .solve(Eigen::MatrixXf::Identity(7, 7));
+
+    // update variance covariance matrix
     Pu = R.bottomRightCorner(9, 9);
 
-    Eigen::MatrixXf Sui = Su.triangularView<Eigen::Upper>().solve(Eigen::MatrixXf::Identity(7, 7));
-    Eigen::VectorXf dx = (Kt.transpose() * Sui) * error;  // 9x7 7x7 7x1
-    Eigen::Quaternionf dq = exp(dx.bottomRows(3));
+    Eigen::VectorXf dx = (Kt.transpose() * Sui) * error;  // (9x1)=(9x7)*(7x7)*(7x1)
 
+    // updata state vector
+    Eigen::Quaternionf dq = exp(dx.bottomRows(3));
     pos = pos + dx.topRows(3);
     vel = vel + dx.block(3, 0, 3, 1);
     qua = qua * dq;
   }
 
-  Eigen::Vector3f getPos() const { return pos; }
-
 private:
+  // exponential image from so(3) to SO(3)
   Eigen::Quaternionf exp(const Eigen::Vector3f& v)
   {
     float norm = v.norm();
@@ -99,6 +114,7 @@ private:
     return Eigen::Quaternionf(c, n.x(), n.y(), n.z());
   }
 
+  // convert to a vector
   Eigen::VectorXf toVec(const Eigen::Vector3f& p, const Eigen::Quaternionf& q)
   {
     Eigen::VectorXf x(7);
@@ -110,6 +126,7 @@ private:
     return x;
   }
 
+  // calculate observation jacobian (7x9)
   Eigen::MatrixXf calcH(const Eigen::Quaternionf& q)
   {
     Eigen::MatrixXf Q(4, 3);
@@ -127,8 +144,7 @@ private:
     return H;
   }
 
-
-  // 伝搬行列 (9x9)
+  // calculate propagation jacobian (9x9)
   Eigen::MatrixXf calcF(const Eigen::Quaternionf& q, const Eigen::Vector3f& acc, float dt)
   {
     Eigen::MatrixXf F = Eigen::MatrixXf::Identity(9, 9);
@@ -137,6 +153,7 @@ private:
     return F;
   }
 
+  // hat operator
   Eigen::Matrix3f hat(const Eigen::Vector3f& vec)
   {
     Eigen::Matrix3f A;
@@ -152,15 +169,14 @@ private:
   const Eigen::Vector3f gravity;
   const float DT;
 
-  // drive noise
+  // upper trianguler matrix of variance covariance matrix (9x9)
+  Eigen::MatrixXf Pu;
+  // upper trianguler matrix of drive noise (9x9)
   Eigen::MatrixXf Vu;
-  // observe noise
+  // upper trianguler matrix of observe noise (7x7)
   Eigen::MatrixXf Wu;
 
   // nominal state
   Eigen::Vector3f pos, vel;
   Eigen::Quaternionf qua;
-
-  // upper trianguler matrix of variance covariance matrix
-  Eigen::MatrixXf Pu;  // 9x9
 };
