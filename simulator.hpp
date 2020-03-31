@@ -17,12 +17,15 @@ public:
     true_q.setIdentity();
 
     for (int i = 0, N = static_cast<int>(1.0f / DT); i < N; i++) {
-      Eigen::Vector3f sensor_acc, sensor_omega;
-      sensor_acc << 13 * std::cos(static_cast<float>(i) * 0.0037), 17 * std::sin(static_cast<float>(i) * 0.0011), (i < N / 10) ? 0.1f : (N - i < N / 10) ? -0.2f : 0;
-      sensor_omega << 3 * std::sin(static_cast<float>(i) * 0.0019), 7 * std::cos(static_cast<float>(i) * 0.0073), (i < N / 4) ? 0.1f : (N - i < N / 10) ? -0.2f : 0;
-      sensor_acc += gravity;
-
       const Eigen::Matrix3f R = true_q.toRotationMatrix();
+
+      Eigen::Vector3f sensor_acc, sensor_omega;
+      Eigen::Vector3f global_acc, global_omega;
+      global_acc << 13 * std::cos(static_cast<float>(i) * 0.0037), 17 * std::sin(static_cast<float>(i) * 0.0011), 7 * std::sin(static_cast<float>(i) * 0.0053);
+      global_omega << 3 * std::sin(static_cast<float>(i) * 0.019), 7 * std::cos(static_cast<float>(i) * 0.073), 5 * std::sin(static_cast<float>(i) * 0.0053);
+
+      sensor_acc = R.transpose() * (global_acc + gravity);
+      sensor_omega = global_omega;  // よくよく考えるとこれは違うが本質的な問題ではない
 
       true_pos += DT * true_vel + DT * DT * 0.5f * (R * sensor_acc - gravity);
       true_vel += DT * (R * sensor_acc - gravity);
@@ -35,10 +38,10 @@ public:
     }
   }
   // ローカル加速度
-  Eigen::Vector3f getAcc(int i) { return sensor_acc_data[i] + 0.1f * Eigen::Vector3f::Random(); }
+  Eigen::Vector3f getAcc(int i) { return sensor_acc_data[i] + 4.0f * Eigen::Vector3f::Random(); }
 
   // ローカル角速度
-  Eigen::Vector3f getOmega(int i) { return sensor_omega_data[i] + 0.1f * Eigen::Vector3f::Random(); }
+  Eigen::Vector3f getOmega(int i) { return sensor_omega_data[i] + 4.0f * Eigen::Vector3f::Random(); }
 
   // グローバル位置
   Eigen::Vector3f getGps(float i) { return true_pos_data[i] + 0.1f * Eigen::Vector3f::Random(); }
