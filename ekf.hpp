@@ -30,9 +30,11 @@ public:
     Vu = V.ldlt().matrixU();
 
     // observe noise
-    W.setZero(6, 6);
-    W.topLeftCorner(3, 3) = 0.1 * Eigen::Matrix3f::Identity(3, 3);      // position noise
-    W.bottomRightCorner(3, 3) = 0.1 * Eigen::Matrix3f::Identity(3, 3);  // rotation noise
+    Eigen::MatrixXf W;
+    W.setZero(7, 7);
+    W.topLeftCorner(3, 3) = 0.1 * Eigen::Matrix3f::Identity();      // position noise
+    W.bottomRightCorner(4, 4) = 0.1 * Eigen::Matrix4f::Identity();  // rotation noise
+    Wu = W.ldlt().matrixU();
   }
 
   void predict(const Eigen::Vector3f& acc, const Eigen::Vector3f& omega)
@@ -55,8 +57,34 @@ public:
     Pu = (Q.transpose() * QR).topRows(9);
   }
 
-  void observe(const Eigen::Matrix4f& T, unsigned long ns)
+  void observe(const Eigen::Vector3f& obs_p, const Eigen::Quaternionf& obs_q)
   {
+    // error vector          (7)
+    Eigen::VectorXf error = toVec(obs_p, obs_q) - toVec(pos, qua);
+
+    // observation jacobian  (7x9)
+    Eigen::MatrixXf H = calcH(qua);
+
+    // QR (7+9,7+9)
+    Eigen::MatrixXf QR(16, 16);
+    QR.setZero();
+    QR.topLeftCorner(7, 7) = Wu;
+    QR.bottomLeftCorner(9, 7) = Pu * H.transpose();  // 9x9 9x7
+    QR.bottomRightCorner(9, 9) = Pu;
+
+    Eigen::MatrixXf Q = QR.householderQr().householderQ();
+    Eigen::MatrixXf R = Q.transpose() * QR;
+    Eigen::MatrixXf Su = R.topLeftCorner(7, 7);
+    Eigen::MatrixXf Kt = R.topRightCorner(7, 9);
+    Pu = R.bottomRightCorner(9, 9);
+
+    Eigen::MatrixXf Sui = Su.triangularView<Eigen::Upper>().solve(Eigen::MatrixXf::Identity(7, 7));
+    Eigen::VectorXf dx = (Kt.transpose() * Sui) * error;  // 9x7 7x7 7x1
+    Eigen::Quaternionf dq = exp(dx.bottomRows(3));
+
+    pos = pos + dx.topRows(3);
+    vel = vel + dx.block(3, 0, 3, 1);
+    qua = qua * dq;
   }
 
   Eigen::Vector3f getPos() const { return pos; }
@@ -127,7 +155,7 @@ private:
   // drive noise
   Eigen::MatrixXf Vu;
   // observe noise
-  Eigen::MatrixXf W;
+  Eigen::MatrixXf Wu;
 
   // nominal state
   Eigen::Vector3f pos, vel;

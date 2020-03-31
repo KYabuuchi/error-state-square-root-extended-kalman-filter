@@ -1,5 +1,6 @@
 #pragma once
 #include <Eigen/Dense>
+#include <random>
 #include <vector>
 
 class Simulator
@@ -44,7 +45,10 @@ public:
   Eigen::Vector3f getOmega(int i) { return sensor_omega_data[i] + 4.0f * Eigen::Vector3f::Random(); }
 
   // グローバル位置
-  Eigen::Vector3f getGps(float i) { return true_pos_data[i] + 0.1f * Eigen::Vector3f::Random(); }
+  Eigen::Vector3f getGps(float i) { return true_pos_data[i] + 0.3f * Eigen::Vector3f::Random(); }
+
+  // グローバル回転
+  Eigen::Quaternionf getOrientation(float i) { return true_q_data[i] * randQ(); }
 
   // グローバル位置
   Eigen::Vector3f getTruePos(float i) { return true_pos_data[i]; }
@@ -58,6 +62,14 @@ private:
     Eigen::Vector3f n = s * v.normalized();
     return Eigen::Quaternionf(c, n.x(), n.y(), n.z());
   }
+
+  Eigen::Quaternionf randQ()
+  {
+    std::normal_distribution<> norm(0.0, 1.57);
+    return Eigen::Quaternionf(Eigen::AngleAxisf(norm(mt), Eigen::Vector3f::Random()));
+  }
+
+  std::mt19937 mt;
 
   std::vector<Eigen::Vector3f> sensor_acc_data;
   std::vector<Eigen::Vector3f> sensor_omega_data;
